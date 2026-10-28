@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# Local environment / secrets
+.env
+*.pem
+*.key
+
+# OS
+.DS_Store
+
+# Large/raw scan output that shouldn't be committed wholesale
+# (keep curated evidence, ignore noisy raw dumps if any are generated locally)
+*.pcap
+/tmp/

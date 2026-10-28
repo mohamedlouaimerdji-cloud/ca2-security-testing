@@ -1,0 +1,61 @@
+name: Security tests
+
+# This workflow is the automation artefact for brief requirement 3: it makes
+# part of the testing programme repeatable on demand and on a schedule,
+# rather than only run by hand.
+#
+# It spins up Juice Shop itself inside the runner (not the Azure VM — CI
+# cannot reach the SSH tunnel), so it exercises the application-layer
+# checks (F1 SQLi re-confirmation) against a disposable, identical target.
+# Checks that depend on the actual Azure deployment (encryption at rest,
+# NSG config) remain manual, per docs/01-test-matrix.md.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 6 * * 1" # weekly, Monday 06:00 UTC
+  push:
+    paths:
+      - "scripts/**"
+      - ".github/workflows/security-tests.yml"
+
+jobs:
+  scripted-checks:
+    runs-on: ubuntu-latest
+    services:
+      juiceshop:
+        image: bkimminich/juice-shop
+        ports:
+          - 3000:3000
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Wait for Juice Shop to be ready
+        run: |
+          for i in $(seq 1 30); do
+            if curl -sf http://127.0.0.1:3000 > /dev/null; then
+              echo "Juice Shop is up"; exit 0
+            fi
+            sleep 2
+          done
+          echo "Juice Shop did not start in time" >&2
+          exit 1
+
+      - name: Run scripted checks
+        run: ./scripts/run_all.sh http://127.0.0.1:3000
+
+      - name: Upload results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: security-test-results
+          path: results/report.json
