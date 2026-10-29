@@ -37,7 +37,8 @@ maintained separately and is not duplicated here; this repo is the
 │   └── zap-reports/            ZAP baseline/active scan output (HTML/JSON/MD)
 │
 ├── scripts/                   Testing and automation scripts
-│   ├── zap_baseline.sh         Wraps the ZAP baseline scan against the tunnel
+│   ├── zap_baseline.sh         Wraps the ZAP baseline scan against the tunnel (Linux/macOS)
+│   ├── zap_baseline.ps1        Same, for Windows PowerShell + Docker Desktop
 │   ├── access_control_test.py  Horizontal/vertical privilege + IDOR checks (also the automation artefact)
 │   ├── check_cookie_flags.py   Confirms F2/M3: HttpOnly/Secure/SameSite on the session cookie
 │   ├── sqli_check.py           Re-confirms F1 (SQLi login bypass) in a scripted, non-destructive way
