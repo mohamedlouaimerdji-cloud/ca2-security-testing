@@ -27,14 +27,14 @@ jobs:
 - parameters:
     reportDescription: ''
     reportDir: /zap/wrk/
-    reportFile: zap-baseline-20261029-164142.html
+    reportFile: zap-baseline-20261029-181404.html
     reportTitle: ZAP Scanning Report
     template: traditional-html
   type: report
 - parameters:
     reportDescription: ''
     reportDir: /zap/wrk/
-    reportFile: zap-baseline-20261029-164142.json
+    reportFile: zap-baseline-20261029-181404.json
     reportTitle: ZAP Scanning Report
     template: traditional-json
   type: report
