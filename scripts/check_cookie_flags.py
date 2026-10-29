@@ -5,7 +5,7 @@ missing SameSite) by inspecting the actual Set-Cookie / auth header
 behaviour on login, rather than relying on config review alone.
 
 Usage:
-    python scripts/check_cookie_flags.py --base-url http://127.0.0.1:3000 \
+    python scripts/check_cookie_flags.py --base-url http://localhost:3000 \
         --email victim@juice-sh.op --password changeme
 """
 import argparse
@@ -15,6 +15,16 @@ import sys
 import requests
 
 
+def get_set_cookie_headers(resp: requests.Response) -> list:
+    """Return every Set-Cookie header (requests merges duplicates, so use raw)."""
+    headers = []
+    if resp.raw is not None and hasattr(resp.raw.headers, "getlist"):
+        headers = resp.raw.headers.getlist("Set-Cookie")
+    if not headers and "Set-Cookie" in resp.headers:
+        headers = [resp.headers["Set-Cookie"]]
+    return headers
+
+
 def check_cookie_flags(base_url: str, email: str, password: str, timeout: float = 10.0) -> dict:
     url = f"{base_url.rstrip('/')}/rest/user/login"
     try:
@@ -22,8 +32,18 @@ def check_cookie_flags(base_url: str, email: str, password: str, timeout: float 
     except requests.RequestException as exc:
         return {"check": "F2_M3_cookie_flags", "status": "ERROR", "detail": str(exc)}
 
-    set_cookie_headers = resp.raw.headers.get_all("Set-Cookie") if resp.raw else []
-    set_cookie_headers = set_cookie_headers or ([resp.headers["Set-Cookie"]] if "Set-Cookie" in resp.headers else [])
+    # A failed login says nothing about cookie/token handling, so don't report
+    # it as a finding.
+    if resp.status_code != 200:
+        return {
+            "check": "F2_M3_cookie_flags",
+            "status": "ERROR (login failed)",
+            "http_status": resp.status_code,
+            "detail": "Login rejected; cookie/token results would be meaningless. "
+                      "Check the email/password and that the account is registered.",
+        }
+
+    set_cookie_headers = get_set_cookie_headers(resp)
 
     flags = {"HttpOnly": False, "Secure": False, "SameSite": None}
     for header in set_cookie_headers:
@@ -70,4 +90,10 @@ if __name__ == "__main__":
 
     result = check_cookie_flags(args.base_url, args.email, args.password)
     print(json.dumps(result, indent=2))
-    sys.exit(0 if result["status"] == "PASS" else 1)
+
+    if result["status"] == "PASS":
+        sys.exit(0)
+    elif result["status"].startswith("ERROR"):
+        sys.exit(2)  # distinguish a broken test from a genuine finding
+    else:
+        sys.exit(1)
