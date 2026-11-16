@@ -1,21 +1,30 @@
 # Reflection on the CA1 threat model
 
-*To be completed after testing, directly against `03-ca1-predictions.md`.*
+Each prediction from `docs/03-ca1-predictions.md` (fixed before testing began)
+against what this round of testing actually found.
 
-For each prediction P1–P9:
+| # | Area | CA1 predicted | Actual outcome | Verdict |
+| --- | --- | --- | --- | --- |
+| P1 | Unauthenticated login (TB1/TB2) | SQLi bypass remains exploitable; no perimeter control stops/detects it | Re-confirmed exploitable via scripted test (`evidence/unauthenticated/F1-sqli-login-bypass-confirm.json`) | **Confirmed as predicted** |
+| P2 | Unauthenticated info disclosure | Config endpoint reachable without login | Not independently re-tested this round (lower priority given time); the broader ZAP baseline found no new unauthenticated disclosure beyond CA1's original finding | **Not re-tested — treat as unverified, not re-confirmed** |
+| P3 | Authenticated session handling (F2) | Session token lacks HttpOnly/Secure/SameSite; theft needs an extra step | Confirmed, but the mechanism is different from what CA1 implied: there is **no cookie at all** — the token is returned in the response body, not a cookie missing flags. The "missing flags" framing in CA1 assumed a cookie-based session that doesn't actually exist | **Confirmed, but CA1's framing was imprecise — see note below** |
+| P4 | Access control (horizontal/vertical) | Untested assumption; A01 only inferred from the SQLi bypass | **Two new, independently confirmed vulnerabilities**: (1) horizontal IDOR — any authenticated user can read any other user's basket; (2) vertical privilege escalation — `/api/Users` (admin-only) returns the full user directory to a plain customer token, no authorisation check at all | **CA1's caution was justified — this was a real gap, and it turned out worse than "untested": two separate, systemic failures, not one** |
+| P5 | Encryption in transit | Plaintext HTTP; CA1's own testing exposure reduced by the SSH tunnel | Confirmed directly via browser DevTools — password visible in plaintext in the login request | **Confirmed as predicted** |
+| P6 | Encryption at rest | Not assessed in CA1 at all | Tested: passwords are hashed, but with unsalted MD5 — a weak, effectively pre-crackable method (the admin password hash matched a publicly known MD5 of `admin123`). Azure's own disk encryption (platform-managed key) is on by default | **New finding, as expected (CA1 flagged this as a genuine gap, not a guess) — application-layer hashing is weak, platform-layer disk encryption is fine** |
+| P7 | Container isolation (TB4) | Hardening gaps exist but need an attacker already inside the container | Not independently re-tested this round (no container-escape attempt was attempted or in scope — see `docs/00-scope-and-authorisation.md`) | **Not re-tested — CA1's config-based finding stands unchanged** |
+| P8 | CSRF (M3) | Missing SameSite allows forged cross-origin requests | Reassessed in light of P3: since there is no cookie attached automatically by the browser (the token lives in the client's storage, attached manually by the app's own JavaScript), the **classic CSRF attack path CA1 described does not directly apply** — a forged cross-site form cannot make the browser attach a bearer token the way it could a cookie | **CA1's M3 as originally framed looks like a false positive; the underlying absence of protection is still worth noting, but not via the CSRF mechanism CA1 described — see critical evaluation below** |
+| P9 | DoS via dependency (F6) | @fastify/busboy can crash the process; vector taken from NVD | Not independently re-tested this round (DoS testing was explicitly scoped down to avoid repeatedly crashing the one shared VM — see `docs/00-scope-and-authorisation.md`) | **Not re-tested — CA1's NVD-sourced finding stands, no new evidence either way** |
 
-1. State the actual outcome from this round of testing (link the evidence
-   file(s)).
-2. Mark it: **confirmed as predicted** / **confirmed but different in
-   detail** / **not reproduced (possible false positive in CA1)** / **new
-   finding CA1 missed entirely**.
-3. One sentence on *why* — what CA1's method could or couldn't have caught.
+## What the model got right
 
-Close with:
+- **P1, P5**: both config/inference-based CA1 findings held up exactly as predicted once directly tested. The threat model's reasoning about the application layer and the network layer was sound here.
+- **P6**: CA1 correctly flagged encryption at rest as an unassessed gap rather than guessing at an answer — testing confirmed it was worth investigating, and found a real weakness (MD5 hashing) that CA1 had no way to know about without this round.
 
-- What the STRIDE/trust-boundary model got right (likely P1, P2, P5, P9 —
-  things CA1 inferred correctly from config/tooling).
-- What it missed or could only guess at (likely P4 access control, P6
-  encryption at rest — both genuine gaps, not just under-confidence).
-- Whether the 65→13 manual triage in CA1 dropped anything that mattered,
-  with evidence either way.
+## What the model missed or got wrong
+
+- **P4 is the single biggest gap.** CA1's STRIDE/trust-boundary exercise treated "Broken Access Control" as effectively solved by the SQLi finding (an authentication bypass), when in fact access control was independently, severely broken for ordinary authenticated users too. A threat model built primarily around one exploit path (the SQLi login bypass) under-represented how many *other* paths into the same category of risk existed. This suggests the 65→13 manual triage in CA1 (Section 3) may have dismissed some access-control-adjacent threats as "already neutralised" or "not applicable" when they weren't actually tested.
+- **P3/P8 show a more subtle problem: CA1's threat model made an architectural assumption (cookie-based sessions) that didn't match the real implementation (bearer token in response body).** This isn't a case of missing a vulnerability — the underlying weak point (no real protection on the token) was correctly flagged — but the specific *mechanism* described (cookie flags, CSRF via SameSite) was not quite how the app actually works. This is a useful lesson for future threat modelling: verify implementation details (how is the session actually carried?) before writing the specific attack narrative, not just the general risk category.
+
+## Overall
+
+CA1's trust-boundary structure (TB1–TB4) and its general risk categories held up well — nothing we tested fell *outside* those boundaries. But within TB2/TB3 specifically, the model under-tested access control, and over-specified the mechanism of the session-token weakness. The biggest practical lesson: **"confirmed via one exploit" is not the same as "tested independently,"** and CA1's own A01 finding is the clearest example of that gap once this round's testing closed it.
